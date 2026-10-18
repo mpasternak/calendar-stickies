@@ -51,45 +51,61 @@ function withResult(prev, output, error) {
   return { ...prev, busy: false, output, error, last: d || prev.last };
 }
 
-// --- motywy kolorystyczne (🎨 w nagłówku otwiera paletę; wybór zapamiętany) --
-const THEMES = {
-  grafit:    { bg: "rgba(28,28,30,0.84)",    fg: "#ececec" },
-  czarny:    { bg: "rgba(0,0,0,0.88)",       fg: "#f0f0f0" },
-  granat:    { bg: "rgba(24,38,66,0.88)",    fg: "#e8eefc" },
-  niebieski: { bg: "rgba(30,64,120,0.88)",   fg: "#eaf1ff" },
-  morski:    { bg: "rgba(16,70,80,0.88)",    fg: "#e4f6f8" },
-  zielony:   { bg: "rgba(22,52,40,0.88)",    fg: "#e6f4ec" },
-  oliwka:    { bg: "rgba(58,64,30,0.88)",    fg: "#f2f4e4" },
-  brąz:      { bg: "rgba(70,46,28,0.88)",    fg: "#f7ede4" },
-  bordo:     { bg: "rgba(72,28,36,0.88)",    fg: "#fbeaec" },
-  śliwka:    { bg: "rgba(70,30,62,0.88)",    fg: "#f8e8f4" },
-  fiolet:    { bg: "rgba(52,36,78,0.88)",    fg: "#f0e9fb" },
-  karteczka: { bg: "rgba(255,243,168,0.95)", fg: "#2b2b2b" },
-  mięta:     { bg: "rgba(206,240,220,0.95)", fg: "#1d2b22" },
-  błękit:    { bg: "rgba(208,228,250,0.95)", fg: "#1a2433" },
-  róż:       { bg: "rgba(250,214,226,0.95)", fg: "#33202a" },
-  jasny:     { bg: "rgba(246,246,248,0.92)", fg: "#1d1d1f" },
+// --- motywy kolorystyczne (🎨 w nagłówku otwiera paletę 6×6; wybór zapamiętany)
+// Rząd 1: odcienie neutralne; dalej kolumna = barwa, rząd = ton (głęboki → pastelowy).
+const NEUTRALS = [
+  ["czarny", "rgba(0,0,0,0.88)", "#f0f0f0"],
+  ["grafit", "rgba(28,28,30,0.84)", "#ececec"],
+  ["łupek", "rgba(58,64,74,0.88)", "#eef1f5"],
+  ["stal", "rgba(120,126,136,0.90)", "#ffffff"],
+  ["perła", "rgba(222,224,228,0.94)", "#1d1d1f"],
+  ["biały", "rgba(250,250,252,0.94)", "#1d1d1f"],
+];
+const HUES = [
+  ["czerwony", 355], ["pomarańczowy", 26], ["żółty", 50], ["zielony", 145], ["niebieski", 215], ["fioletowy", 275],
+];
+// [nazwa tonu, nasycenie %, jasność %, krycie, kolor tekstu]
+const TONES = [
+  ["głęboki", 45, 14, 0.9, "#f4f4f4"],
+  ["ciemny", 40, 24, 0.9, "#f4f4f4"],
+  ["średni", 42, 38, 0.92, "#ffffff"],
+  ["jasny", 60, 76, 0.95, "#1d1d1f"],
+  ["pastelowy", 70, 90, 0.95, "#1d1d1f"],
+];
+const THEMES = {};
+NEUTRALS.forEach(([name, bg, fg]) => { THEMES[name] = { bg, fg }; });
+TONES.forEach(([tone, s, l, a, fg]) => HUES.forEach(([hue, h]) => {
+  THEMES[`${hue} ${tone}`] = { bg: `hsla(${h}, ${s}%, ${l}%, ${a})`, fg };
+}));
+const THEME_NAMES = Object.keys(THEMES); // kolejność = rzędy palety 6×6
+// Nazwy z poprzedniej, mniejszej palety → najbliższy odpowiednik.
+const THEME_ALIASES = {
+  ciemny: "grafit", granat: "niebieski głęboki", niebieski: "niebieski ciemny", morski: "zielony głęboki",
+  zielony: "zielony ciemny", oliwka: "żółty głęboki", "brąz": "pomarańczowy głęboki", bordo: "czerwony głęboki",
+  "śliwka": "fioletowy głęboki", fiolet: "fioletowy ciemny", karteczka: "żółty pastelowy",
+  "mięta": "zielony pastelowy", "błękit": "niebieski pastelowy", "róż": "czerwony pastelowy", jasny: "biały",
 };
-const THEME_NAMES = Object.keys(THEMES);
 const DEFAULT_THEME = "__THEME__";
-const themeOf = (name) => THEMES[name] || THEMES[DEFAULT_THEME] || THEMES.grafit;
+const resolveTheme = (name) => (THEMES[name] ? name : THEME_ALIASES[name]);
+const themeOf = (name) => THEMES[resolveTheme(name)] || THEMES[resolveTheme(DEFAULT_THEME)] || THEMES.grafit;
 // Linie/tła pomocnicze liczone z koloru tekstu — pasują do każdego motywu.
 const mix = (pct) => `color-mix(in srgb, currentColor ${pct}%, transparent)`;
 
-// Paleta 4×4 pod przyciskiem 🎨 (pozycja względem korzenia karteczki).
+// Paleta 6×6 pod przyciskiem 🎨 (pozycja względem korzenia karteczki).
 const pickerBox = {
   position: "absolute", top: 30, right: 10, zIndex: 10, padding: 6, borderRadius: 8,
-  display: "grid", gridTemplateColumns: "repeat(4, 20px)", gap: 5,
+  display: "grid", gridTemplateColumns: "repeat(6, 18px)", gap: 4,
   boxShadow: "0 6px 18px rgba(0,0,0,0.45)", border: "1px solid " + mix(20), cursor: "default",
 };
 function themePicker(current, onPick) {
+  const cur = resolveTheme(current);
   return (
     <div style={{ ...pickerBox, background: themeOf(current).bg }} data-nodrag="1">
       {THEME_NAMES.map((name) => (
         <span key={name} title={name} data-nodrag="1" onClick={() => onPick(name)}
-              style={{ width: 20, height: 20, borderRadius: 5, cursor: "pointer", background: THEMES[name].bg,
-                       boxShadow: name === current ? "0 0 0 2px " + THEMES[name].fg + ", 0 0 0 3px rgba(0,0,0,0.5)"
-                                                   : "inset 0 0 0 1px rgba(127,127,127,0.5)" }} />
+              style={{ width: 18, height: 18, borderRadius: 4, cursor: "pointer", background: THEMES[name].bg,
+                       boxShadow: name === cur ? "0 0 0 2px " + THEMES[name].fg + ", 0 0 0 3px rgba(0,0,0,0.5)"
+                                              : "inset 0 0 0 1px rgba(127,127,127,0.5)" }} />
       ))}
     </div>
   );
@@ -105,7 +121,7 @@ export const initialState = {
   collapsed: !!_ui.collapsed,
   hidden: !!_ui.hidden,
   height: typeof _ui.height === "number" ? _ui.height : null,
-  theme: THEMES[_ui.theme] ? _ui.theme : DEFAULT_THEME,
+  theme: resolveTheme(_ui.theme) || DEFAULT_THEME,
 };
 
 export const updateState = (event, prev) => {

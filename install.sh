@@ -3,9 +3,10 @@
 # i wgrywa je do Übersicht. Po zmianie szablonu: ./install.sh, potem ⌘R.
 #
 # Kolor startowy karteczek (potem zmieniasz 🎨 na karteczce):
-#   grafit czarny granat niebieski morski zielony oliwka brąz bordo śliwka fiolet
-#   karteczka mięta błękit róż jasny
-#   THEME=zielony ./install.sh
+#   czarny grafit łupek stal perła biały, albo „<barwa> <ton>":
+#   barwa: czerwony pomarańczowy żółty zielony niebieski fioletowy
+#   ton:   głęboki ciemny średni jasny pastelowy
+#   THEME="zielony ciemny" ./install.sh
 #
 # Karteczka Google Tasks instaluje się tylko, gdy jest już autoryzacja
 # (python gtasks.py auth — patrz README).
@@ -13,7 +14,7 @@ set -euo pipefail
 
 SRC="$(cd "$(dirname "$0")" && pwd)"
 DEST="$HOME/Library/Application Support/Übersicht/widgets"
-THEME="${THEME:-granat}"
+THEME="${THEME:-niebieski głęboki}"
 
 if [ ! -d "$DEST" ]; then
   echo "Nie znaleziono katalogu Übersicht: $DEST"
