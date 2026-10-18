@@ -1,0 +1,385 @@
+// AUTO-GENEROWANE przez install.sh z sticky.jsx — edytuj szablon, nie ten plik.
+// Karteczka: __TITLE__
+// Układ: __LAYOUT__ ("list" = dni pod sobą, "columns" = dni obok siebie).
+//
+// Skrypt zwraca JSON: { summary, generated_at, sections: [{ title, weekend?,
+//   items: [{ time, end, title, sub?, color?, tip?, url?, dim?, now? }] }] }  albo  { error }.
+
+import { run } from "uebersicht";
+
+export const refreshFrequency = __REFRESH__;
+
+export const command = `cd "__PROJECT_DIR__" && "__PYTHON__" __SCRIPT__ --json`;
+
+export const className = `top: 0; left: 0;`;
+
+const POS_KEY = "calpos-__SLUG__";
+const UI_KEY = "calui-__SLUG__";
+const LAST_KEY = "callast-__SLUG__"; // ostatnie udane dane — pokazywane, gdy skrypt zawiedzie (np. brak sieci)
+const DEFAULT_POS = { x: __LEFT__, y: __TOP__ };
+const LAYOUT = "__LAYOUT__";
+const MIN_BODY = 48;
+
+// --- trwały stan UI (localStorage) -----------------------------------------
+function loadUI() {
+  try { return JSON.parse(localStorage.getItem(UI_KEY)) || {}; }
+  catch (e) { return {}; } // brak/zepsuty wpis — startujemy z domyślnych
+}
+function saveUI(patch) {
+  const next = { ...loadUI(), ...patch };
+  try { localStorage.setItem(UI_KEY, JSON.stringify(next)); }
+  catch (e) { /* tryb prywatny / brak miejsca — stan zostaje tylko w pamięci */ }
+}
+
+// --- ostatnie udane dane (fallback offline) ---------------------------------
+function parseData(output) {
+  try { const d = JSON.parse(output); return d && !d.error && d.sections ? d : null; }
+  catch (e) { return null; } // nie-JSON (np. traceback) = brak świeżych danych
+}
+function loadLast() {
+  try { return JSON.parse(localStorage.getItem(LAST_KEY)); }
+  catch (e) { return null; } // brak/zepsuty wpis — po prostu nie mamy kopii
+}
+function saveLast(d) {
+  try { localStorage.setItem(LAST_KEY, JSON.stringify(d)); }
+  catch (e) { /* brak miejsca — kopia zostaje tylko w pamięci (state.last) */ }
+}
+// Wynik komendy: udane dane zapamiętujemy, przy błędzie zostaje poprzednia kopia.
+function withResult(prev, output, error) {
+  const d = error ? null : parseData(output);
+  if (d) saveLast(d);
+  return { ...prev, busy: false, output, error, last: d || prev.last };
+}
+
+// --- motywy kolorystyczne (🎨 w nagłówku otwiera paletę; wybór zapamiętany) --
+const THEMES = {
+  grafit:    { bg: "rgba(28,28,30,0.84)",    fg: "#ececec" },
+  czarny:    { bg: "rgba(0,0,0,0.88)",       fg: "#f0f0f0" },
+  granat:    { bg: "rgba(24,38,66,0.88)",    fg: "#e8eefc" },
+  niebieski: { bg: "rgba(30,64,120,0.88)",   fg: "#eaf1ff" },
+  morski:    { bg: "rgba(16,70,80,0.88)",    fg: "#e4f6f8" },
+  zielony:   { bg: "rgba(22,52,40,0.88)",    fg: "#e6f4ec" },
+  oliwka:    { bg: "rgba(58,64,30,0.88)",    fg: "#f2f4e4" },
+  brąz:      { bg: "rgba(70,46,28,0.88)",    fg: "#f7ede4" },
+  bordo:     { bg: "rgba(72,28,36,0.88)",    fg: "#fbeaec" },
+  śliwka:    { bg: "rgba(70,30,62,0.88)",    fg: "#f8e8f4" },
+  fiolet:    { bg: "rgba(52,36,78,0.88)",    fg: "#f0e9fb" },
+  karteczka: { bg: "rgba(255,243,168,0.95)", fg: "#2b2b2b" },
+  mięta:     { bg: "rgba(206,240,220,0.95)", fg: "#1d2b22" },
+  błękit:    { bg: "rgba(208,228,250,0.95)", fg: "#1a2433" },
+  róż:       { bg: "rgba(250,214,226,0.95)", fg: "#33202a" },
+  jasny:     { bg: "rgba(246,246,248,0.92)", fg: "#1d1d1f" },
+};
+const THEME_NAMES = Object.keys(THEMES);
+const DEFAULT_THEME = "__THEME__";
+const themeOf = (name) => THEMES[name] || THEMES[DEFAULT_THEME] || THEMES.grafit;
+// Linie/tła pomocnicze liczone z koloru tekstu — pasują do każdego motywu.
+const mix = (pct) => `color-mix(in srgb, currentColor ${pct}%, transparent)`;
+
+// Paleta 4×4 pod przyciskiem 🎨 (pozycja względem korzenia karteczki).
+const pickerBox = {
+  position: "absolute", top: 30, right: 10, zIndex: 10, padding: 6, borderRadius: 8,
+  display: "grid", gridTemplateColumns: "repeat(4, 20px)", gap: 5,
+  boxShadow: "0 6px 18px rgba(0,0,0,0.45)", border: "1px solid " + mix(20), cursor: "default",
+};
+function themePicker(current, onPick) {
+  return (
+    <div style={{ ...pickerBox, background: themeOf(current).bg }} data-nodrag="1">
+      {THEME_NAMES.map((name) => (
+        <span key={name} title={name} data-nodrag="1" onClick={() => onPick(name)}
+              style={{ width: 20, height: 20, borderRadius: 5, cursor: "pointer", background: THEMES[name].bg,
+                       boxShadow: name === current ? "0 0 0 2px " + THEMES[name].fg + ", 0 0 0 3px rgba(0,0,0,0.5)"
+                                                   : "inset 0 0 0 1px rgba(127,127,127,0.5)" }} />
+      ))}
+    </div>
+  );
+}
+
+// --- stan widgetu -----------------------------------------------------------
+const _ui = loadUI();
+export const initialState = {
+  output: "",
+  error: null,
+  busy: false,
+  last: loadLast(),
+  collapsed: !!_ui.collapsed,
+  hidden: !!_ui.hidden,
+  height: typeof _ui.height === "number" ? _ui.height : null,
+  theme: THEMES[_ui.theme] ? _ui.theme : DEFAULT_THEME,
+};
+
+export const updateState = (event, prev) => {
+  switch (event.type) {
+    case "CAL/SET":       return { ...prev, ...event.patch };
+    case "CAL/BUSY":      return { ...prev, busy: true };
+    case "CAL/REFRESHED": return withResult(prev, event.output, null);
+    case "CAL/ERROR":     return withResult(prev, "", event.error);
+    default:
+      if ("output" in event || "error" in event) {
+        return withResult(prev, event.output, event.error);
+      }
+      return prev;
+  }
+};
+
+// --- akcje ------------------------------------------------------------------
+function setUI(dispatch, patch) {
+  saveUI(patch);
+  dispatch({ type: "CAL/SET", patch });
+}
+function refreshNow(dispatch) {
+  dispatch({ type: "CAL/BUSY" });
+  run(command)
+    .then((output) => dispatch({ type: "CAL/REFRESHED", output }))
+    .catch((err) => dispatch({ type: "CAL/ERROR", error: String(err) }));
+}
+
+// --- przeciąganie pozycji (+ „tapnięcie" przywraca pinezkę) ----------------
+function initDrag(el, onTap) {
+  if (!el) return;
+  if (onTap !== undefined) el.__calTap = onTap;
+  if (el.__calInit) return;
+  el.__calInit = true;
+  let pos;
+  try { pos = JSON.parse(localStorage.getItem(POS_KEY)); } catch (e) { pos = null; }
+  if (!pos) pos = { ...DEFAULT_POS };
+  const apply = () => { el.style.left = pos.x + "px"; el.style.top = pos.y + "px"; };
+  apply();
+  let drag = false, sx = 0, sy = 0, ox = 0, oy = 0;
+  el.addEventListener("mousedown", (e) => {
+    if (e.target.closest("a")) return;
+    if (e.target.closest("[data-nodrag]")) return;
+    drag = true; el.__calMoved = false;
+    sx = e.clientX; sy = e.clientY; ox = pos.x; oy = pos.y;
+    el.style.cursor = "grabbing";
+    e.preventDefault();
+  });
+  window.addEventListener("mousemove", (e) => {
+    if (!drag) return;
+    pos.x = ox + (e.clientX - sx);
+    pos.y = oy + (e.clientY - sy);
+    if (Math.abs(e.clientX - sx) + Math.abs(e.clientY - sy) > 4) el.__calMoved = true;
+    apply();
+  });
+  window.addEventListener("mouseup", () => {
+    if (!drag) return;
+    drag = false;
+    el.style.cursor = "grab";
+    localStorage.setItem(POS_KEY, JSON.stringify(pos));
+    if (!el.__calMoved && el.__calTap) el.__calTap();
+  });
+}
+
+// --- zmiana wysokości listy od dołu ----------------------------------------
+let bodyEl = null;
+const bodyRef = (el) => { if (el) bodyEl = el; };
+function startResize(e, dispatch) {
+  e.preventDefault();
+  const root = e.currentTarget ? e.currentTarget.parentElement : null;
+  const lockTop = root ? root.style.top : "";
+  const lockLeft = root ? root.style.left : "";
+  const pin = () => {
+    if (!root) return;
+    if (lockTop) root.style.top = lockTop;
+    if (lockLeft) root.style.left = lockLeft;
+  };
+  const startY = e.clientY;
+  const startH = bodyEl ? bodyEl.offsetHeight : 0;
+  let lastH = startH, moved = false;
+  if (bodyEl) bodyEl.style.overflowY = "auto";
+  const move = (ev) => {
+    moved = true;
+    lastH = Math.max(MIN_BODY, startH + (ev.clientY - startY));
+    if (bodyEl) bodyEl.style.maxHeight = lastH + "px";
+    pin();
+  };
+  const up = () => {
+    window.removeEventListener("mousemove", move);
+    window.removeEventListener("mouseup", up);
+    pin();
+    if (moved) setUI(dispatch, { height: lastH });
+  };
+  window.addEventListener("mousemove", move);
+  window.addEventListener("mouseup", up);
+}
+
+// --- style ------------------------------------------------------------------
+const rootStyle = {
+  position: "fixed", width: "__WIDTH__px", pointerEvents: "auto", cursor: "grab",
+  fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
+  border: "1px solid " + mix(12), borderRadius: "10px",
+  boxShadow: "0 8px 24px rgba(0,0,0,0.35)", padding: "12px 14px",
+  fontSize: "12px", lineHeight: 1.45,
+};
+const pinStyle = {
+  position: "fixed", pointerEvents: "auto", cursor: "grab",
+  fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
+  border: "1px solid " + mix(12), borderRadius: "8px",
+  boxShadow: "0 4px 12px rgba(0,0,0,0.28)", padding: "5px 10px",
+  fontSize: "12px", fontWeight: 700, whiteSpace: "nowrap", userSelect: "none",
+};
+const hdr = { borderLeft: "4px solid __ACCENT__", paddingLeft: 8, marginBottom: 8 };
+const hdrRow = { display: "flex", alignItems: "center", gap: 8 };
+const title = {
+  fontWeight: 700, fontSize: 14, letterSpacing: 0.3,
+  flex: 1, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
+};
+const sub = { fontSize: 11, opacity: 0.7 };
+const ctlWrap = { display: "flex", alignItems: "center", gap: 9, flex: "0 0 auto" };
+const ctl = { cursor: "pointer", opacity: 0.6, fontSize: 16, lineHeight: 1, userSelect: "none" };
+const row = {
+  display: "block", textDecoration: "none", color: "inherit",
+  padding: "2px 0", borderTop: "1px solid " + mix(8),
+};
+const line = { display: "flex", gap: 6, whiteSpace: "nowrap" };
+const nameC = { flex: 1, overflow: "hidden", textOverflow: "ellipsis" };
+const num = { fontVariantNumeric: "tabular-nums", opacity: 0.6 };
+const prob = { fontSize: 11, opacity: 0.75, paddingLeft: 20, whiteSpace: "nowrap",
+               overflow: "hidden", textOverflow: "ellipsis" };
+// Uchwyt zmiany wysokości: niewidoczny pas przy dolnej krawędzi (wchodzi w dolny
+// padding karteczki); widać go tylko po najechaniu, kursor ↕ podpowiada chwyt.
+const handle = { height: 8, margin: "2px 0 -10px", borderRadius: 4, cursor: "ns-resize", background: "transparent" };
+const HANDLE_HOVER = mix(10);
+
+const secHdr = { fontSize: 10, fontWeight: 700, opacity: 0.55, letterSpacing: 0.4, margin: "8px 0 1px" };
+const col = { flex: "1 1 0", minWidth: 0, padding: "0 6px", borderLeft: "1px solid " + mix(8) };
+const colHdr = { fontSize: 11, fontWeight: 700, opacity: 0.75, marginBottom: 3, whiteSpace: "nowrap" };
+const dot = { width: 7, height: 7, borderRadius: 4, flex: "0 0 auto", marginTop: 5 };
+const timeC = { ...num, flex: "0 0 auto", minWidth: 34 };
+const empty = { fontSize: 11, opacity: 0.35 };
+
+function itemRow(it, i, wrap) {
+  const content = (
+    <div style={{ ...line, alignItems: "flex-start", opacity: it.dim ? 0.4 : 1, fontWeight: it.now ? 700 : 400 }}>
+      <span style={{ ...dot, background: it.color || mix(40) }} />
+      {it.time ? <span style={timeC}>{it.time}</span> : null}
+      <span style={wrap ? { ...nameC, whiteSpace: "normal", wordBreak: "break-word" } : nameC}>
+        {it.now ? "▶ " : ""}{it.title}
+      </span>
+    </div>
+  );
+  return it.url
+    ? <a style={row} href={it.url} title={it.tip || it.title} key={i}>{content}</a>
+    : <div style={row} title={it.tip || it.title} key={i}>{content}</div>;
+}
+
+// Dni pod sobą (dziś/jutro, zadania) albo obok siebie (tydzień).
+function renderSections(sections) {
+  if (LAYOUT === "columns") {
+    return (
+      <div style={{ display: "flex", margin: "0 -6px" }}>
+        {sections.map((s, i) => (
+          <div style={{ ...col, borderLeft: i ? col.borderLeft : "none",
+                        background: s.weekend ? mix(4) : "none" }} key={s.title}>
+            <div style={colHdr}>{s.title}</div>
+            {s.items.length ? s.items.map((it, j) => itemRow(it, j, true)) : <div style={empty}>—</div>}
+          </div>
+        ))}
+      </div>
+    );
+  }
+  return sections.map((s) => (
+    <div key={s.title}>
+      <div style={secHdr}>{s.title}</div>
+      {s.items.length ? s.items.map((it, j) => itemRow(it, j, false)) : <div style={empty}>nic</div>}
+    </div>
+  ));
+}
+
+// --- render -----------------------------------------------------------------
+export const render = (state, dispatch) => {
+  const { output, error, busy, collapsed, hidden, height, last, theme, picker } = state;
+  const T = themeOf(theme);
+  const paint = { background: T.bg, color: T.fg };
+
+  if (hidden) {
+    return (
+      <div style={{ ...pinStyle, ...paint }} ref={(el) => initDrag(el, () => setUI(dispatch, { hidden: false }))}>
+        📌 __TITLE__
+      </div>
+    );
+  }
+
+  // Świeże dane, a gdy skrypt zawiódł — ostatnia zapamiętana kopia.
+  const fresh = error ? null : parseData(output);
+  let parseErr = null;
+  if (!error && output && !fresh) {
+    let j = null;
+    try { j = JSON.parse(output); }
+    catch (e) { j = null; } // skrypt wypisał nie-JSON (np. traceback) — pokażemy surowy tekst
+    parseErr = j && j.error ? j.error : output.slice(0, 200);
+  }
+  // Z tracebacku/komunikatu zostaw ostatnią niepustą linię (sedno błędu).
+  const errText = error ? String(error).trim().split("\n").filter(Boolean).pop() || "?" : parseErr;
+  const d = fresh || last;
+  const stale = !fresh && !!d && !!errText;
+
+  const controls = (
+    <span style={ctlWrap}>
+      <span style={{ ...ctl, fontSize: 13 }} data-nodrag="1" title={`Kolor: ${theme}`}
+            onClick={() => dispatch({ type: "CAL/SET", patch: { picker: !picker } })}>🎨</span>
+      <span style={ctl} data-nodrag="1" title="Odśwież teraz"
+            onClick={() => refreshNow(dispatch)}>{busy ? "⏳" : "⟳"}</span>
+      <span style={ctl} data-nodrag="1" title={collapsed ? "Rozwiń" : "Zwiń"}
+            onClick={() => setUI(dispatch, { collapsed: !collapsed })}>{collapsed ? "▸" : "▾"}</span>
+      <span style={ctl} data-nodrag="1" title="Ukryj (zostanie pinezka)"
+            onClick={() => setUI(dispatch, { hidden: true })}>✕</span>
+    </span>
+  );
+
+  const summary = d
+    ? <span>{stale ? "📴 " : ""}{d.summary}</span>
+    : <span>{errText ? "⚠️ błąd" : "—"}</span>;
+
+  if (collapsed) {
+    return (
+      <div style={{ ...rootStyle, ...paint, width: "auto", minWidth: 260, padding: "8px 14px" }} ref={(el) => initDrag(el, null)}>
+        {picker && themePicker(theme, (name) => setUI(dispatch, { theme: name, picker: false }))}
+        <div style={{ ...hdr, marginBottom: 0, ...hdrRow }}>
+          <span style={title}>__TITLE__</span>
+          <span style={{ ...sub, flex: "0 0 auto" }}>{summary}</span>
+          {controls}
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ ...rootStyle, ...paint }} ref={(el) => initDrag(el, null)}>
+        {picker && themePicker(theme, (name) => setUI(dispatch, { theme: name, picker: false }))}
+      <div style={hdr}>
+        <div style={hdrRow}>
+          <div style={title}>__TITLE__</div>
+          {controls}
+        </div>
+        <div style={sub}>{summary}</div>
+      </div>
+
+      <div ref={bodyRef}
+           style={{ maxHeight: height ? height + "px" : "none",
+                    overflowY: height ? "auto" : "visible" }}>
+        {stale && (
+          <div style={{ ...sub, marginBottom: 4 }} title={String(error || parseErr)}>
+            📴 nie udało się odświeżyć — dane z {d.generated_at ? d.generated_at.slice(0, 16).replace("T", " ") : "?"}
+          </div>
+        )}
+        {!d && errText && <div style={sub} title={String(error || parseErr)}>⚠️ błąd: {errText}</div>}
+        {!d && !errText && <div style={sub}>wczytuję…</div>}
+        {d && renderSections(d.sections)}
+        {d && d.generated_at && (
+          <div style={{ ...sub, marginTop: 8, textAlign: "right" }}>{d.generated_at.slice(11, 16)}</div>
+        )}
+      </div>
+
+      <div style={handle} data-nodrag="1"
+           onMouseEnter={(e) => { e.currentTarget.style.background = HANDLE_HOVER; }}
+           onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}
+           title="Przeciągnij = zmień wysokość · dwuklik = auto"
+           onMouseDown={(e) => startResize(e, dispatch)}
+           onDoubleClick={() => {
+             setUI(dispatch, { height: null });
+             if (bodyEl) { bodyEl.style.maxHeight = "none"; bodyEl.style.overflowY = "visible"; }
+           }} />
+    </div>
+  );
+};

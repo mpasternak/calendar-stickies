@@ -1,0 +1,8 @@
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+.venv/
+# autoryzacja Google — nigdy do repo (i tak trzymana w ~/.config)
+google-client.json
+google-token.json
