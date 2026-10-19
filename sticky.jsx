@@ -19,6 +19,8 @@ const LAST_KEY = "callast-__SLUG__"; // ostatnie udane dane — pokazywane, gdy 
 const DEFAULT_POS = { x: __LEFT__, y: __TOP__ };
 const LAYOUT = "__LAYOUT__";
 const MIN_BODY = 48;
+const DEFAULT_WIDTH = __WIDTH__;  // szerokość startowa; prawą krawędzią można ją zmienić
+const MIN_WIDTH = 220;
 
 // --- trwały stan UI (localStorage) -----------------------------------------
 function loadUI() {
@@ -121,6 +123,7 @@ export const initialState = {
   collapsed: !!_ui.collapsed,
   hidden: !!_ui.hidden,
   height: typeof _ui.height === "number" ? _ui.height : null,
+  width: typeof _ui.width === "number" ? _ui.width : null,
   theme: resolveTheme(_ui.theme) || DEFAULT_THEME,
 };
 
@@ -219,9 +222,35 @@ function startResize(e, dispatch) {
   window.addEventListener("mouseup", up);
 }
 
+// --- zmiana szerokości od prawej krawędzi ----------------------------------
+function startWidthResize(e, dispatch) {
+  e.preventDefault();
+  // Jak przy wysokości: lewy-górny róg ZABLOKOWANY, rośnie tylko prawa krawędź.
+  const root = e.currentTarget ? e.currentTarget.parentElement : null;
+  if (!root) return;
+  const lockTop = root.style.top, lockLeft = root.style.left;
+  const startX = e.clientX;
+  const startW = parseFloat(getComputedStyle(root).width) || DEFAULT_WIDTH;
+  let lastW = startW, moved = false;
+  const move = (ev) => {
+    moved = true;
+    lastW = Math.max(MIN_WIDTH, Math.round(startW + (ev.clientX - startX)));
+    root.style.width = lastW + "px";
+    root.style.top = lockTop;
+    root.style.left = lockLeft;
+  };
+  const up = () => {
+    window.removeEventListener("mousemove", move);
+    window.removeEventListener("mouseup", up);
+    if (moved) setUI(dispatch, { width: lastW }); // czysty klik nie zmienia rozmiaru
+  };
+  window.addEventListener("mousemove", move);
+  window.addEventListener("mouseup", up);
+}
+
 // --- style ------------------------------------------------------------------
 const rootStyle = {
-  position: "fixed", width: "__WIDTH__px", pointerEvents: "auto", cursor: "grab",
+  position: "fixed", width: DEFAULT_WIDTH + "px", pointerEvents: "auto", cursor: "grab",
   fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
   border: "1px solid " + mix(12), borderRadius: "10px",
   boxShadow: "0 8px 24px rgba(0,0,0,0.35)", padding: "12px 14px",
@@ -256,6 +285,9 @@ const prob = { fontSize: 11, opacity: 0.75, paddingLeft: 20, whiteSpace: "nowrap
 // padding karteczki); widać go tylko po najechaniu, kursor ↕ podpowiada chwyt.
 const handle = { height: 8, margin: "2px 0 -10px", borderRadius: 4, cursor: "ns-resize", background: "transparent" };
 const HANDLE_HOVER = mix(10);
+// Uchwyt szerokości: niewidoczny pas wzdłuż prawej krawędzi, kursor ↔.
+const sideHandle = { position: "absolute", top: 10, bottom: 10, right: -4, width: 8, borderRadius: 4,
+                     cursor: "ew-resize", background: "transparent" };
 
 const secHdr = { fontSize: 10, fontWeight: 700, opacity: 0.55, letterSpacing: 0.4, margin: "8px 0 1px" };
 const col = { flex: "1 1 0", minWidth: 0, padding: "0 6px", borderLeft: "1px solid " + mix(8) };
@@ -304,7 +336,7 @@ function renderSections(sections) {
 
 // --- render -----------------------------------------------------------------
 export const render = (state, dispatch) => {
-  const { output, error, busy, collapsed, hidden, height, last, theme, picker } = state;
+  const { output, error, busy, collapsed, hidden, height, width, last, theme, picker } = state;
   const T = themeOf(theme);
   const paint = { background: T.bg, color: T.fg };
 
@@ -361,7 +393,7 @@ export const render = (state, dispatch) => {
   }
 
   return (
-    <div style={{ ...rootStyle, ...paint }} ref={(el) => initDrag(el, null)}>
+    <div style={{ ...rootStyle, ...paint, width: (width || DEFAULT_WIDTH) + "px" }} ref={(el) => initDrag(el, null)}>
         {picker && themePicker(theme, (name) => setUI(dispatch, { theme: name, picker: false }))}
       <div style={hdr}>
         <div style={hdrRow}>
@@ -395,6 +427,16 @@ export const render = (state, dispatch) => {
            onDoubleClick={() => {
              setUI(dispatch, { height: null });
              if (bodyEl) { bodyEl.style.maxHeight = "none"; bodyEl.style.overflowY = "visible"; }
+           }} />
+
+      <div style={sideHandle} data-nodrag="1"
+           onMouseEnter={(e) => { e.currentTarget.style.background = HANDLE_HOVER; }}
+           onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}
+           title="Przeciągnij = zmień szerokość · dwuklik = domyślna"
+           onMouseDown={(e) => startWidthResize(e, dispatch)}
+           onDoubleClick={(e) => {
+             setUI(dispatch, { width: null });
+             e.currentTarget.parentElement.style.width = DEFAULT_WIDTH + "px";
            }} />
     </div>
   );

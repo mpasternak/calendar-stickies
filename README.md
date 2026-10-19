@@ -7,7 +7,7 @@ Karteczki na pulpit macOS ([Übersicht](https://tracesof.net/uebersicht/)):
 - **Zadania Google** — Google Tasks: zaległe / dziś / jutro / później / bez terminu
 
 Wspólne dla wszystkich: przeciąganie myszą, ⟳ odśwież, ▾ zwiń, ✕ pinezka 📌,
-wysokość zmieniasz chwytając dolną krawędź (dwuklik = auto), 🎨 paleta 16 kolorów
+wysokość zmieniasz chwytając dolną krawędź (dwuklik = auto), szerokość — prawą krawędź (dwuklik = domyślna), 🎨 paleta 36 kolorów
 (wybór zapamiętany per karteczka), a **bez sieci / przy błędzie** pokazują ostatnie
 pobrane dane z dopiskiem 📴. Kropka przy spotkaniu ma kolor kalendarza.
 
