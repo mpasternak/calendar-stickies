@@ -405,7 +405,7 @@ export const render = (state, dispatch) => {
 
       <div ref={bodyRef}
            style={{ maxHeight: height ? height + "px" : "none",
-                    overflowY: height ? "auto" : "visible" }}>
+                    overflowY: height ? "auto" : "visible", overflowX: "clip" }}>
         {stale && (
           <div style={{ ...sub, marginBottom: 4 }} title={String(error || parseErr)}>
             📴 nie udało się odświeżyć — dane z {d.generated_at ? d.generated_at.slice(0, 16).replace("T", " ") : "?"}
@@ -413,7 +413,9 @@ export const render = (state, dispatch) => {
         )}
         {!d && errText && <div style={sub} title={String(error || parseErr)}>⚠️ błąd: {errText}</div>}
         {!d && !errText && <div style={sub}>wczytuję…</div>}
-        {d && renderSections(d.sections)}
+        {/* Treść ma stałą szerokość (domyślną): zmiana szerokości karteczki tylko
+            odsłania / chowa jej prawą część, zamiast ją skalować. */}
+        {d && <div style={{ width: DEFAULT_WIDTH }}>{renderSections(d.sections)}</div>}
         {d && d.generated_at && (
           <div style={{ ...sub, marginTop: 8, textAlign: "right" }}>{d.generated_at.slice(11, 16)}</div>
         )}
